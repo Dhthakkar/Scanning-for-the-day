@@ -277,35 +277,34 @@ def rvol_pct(sym, q, bhav):
 # ══════════════════════════════════════════════════════
 #  BUILD UNIVERSE: all mainboard NSE stocks > 1000 Cr
 # ══════════════════════════════════════════════════════
-def build_universe(nse):
+def build_universe(nse, bhav, fno, sme):
     """
-    Fetches stocks from multiple NSE indices to get comprehensive
-    mainboard coverage. Filters: Not SME, not already in excluded sets.
+    Full NSE mainboard universe from bhavcopy.
+    Excludes SME, F&O and illiquid stocks.
     """
-    indices = [
-        'NIFTY TOTAL MARKET',      # ~750 stocks — broadest NSE index
-        'NIFTY 500',
-        'NIFTY MIDCAP 150',
-        'NIFTY SMALLCAP 250',
-        'NIFTY MICROCAP 250',
-    ]
+    universe = {}
 
-    all_stocks = {}
-    for idx in indices:
-        try:
-            data = nse.index_stocks(idx)
-            for s in data:
-                sym = (s.get('symbol','') or '').strip()
-                if sym and sym not in all_stocks:
-                    all_stocks[sym] = s
-            print(f'    ✅ {idx}: {len(data)} stocks')
-            time.sleep(0.6)
-        except:
-            print(f'    ⚠  {idx}: failed to load')
+    for sym, data in bhav.items():
 
-    return all_stocks  # {symbol: data_dict}
+        if sym in fno:
+            continue
 
-# ══════════════════════════════════════════════════════
+        if sym in sme:
+            continue
+
+        avg_to = data.get('avg_to', 0)
+
+        if avg_to < ALERT_CFG['min_turnover_cr']:
+            continue
+
+        universe[sym] = data
+
+    print(
+        f'    Universe built from bhavcopy: '
+        f'{len(universe)} stocks'
+    )
+
+    return universe
 #  MAIN MONITOR LOOP
 # ══════════════════════════════════════════════════════
 def run():
@@ -347,7 +346,12 @@ def run():
     bhav = load_bhav(ALERT_CFG['bhav_lookback'])
 
     print('  Building stock universe...')
-    universe = build_universe(nse)
+    universe = build_universe(
+        nse,
+        bhav,
+        fno,
+        sme
+    )
     # Pre-exclude F&O and SME from universe
     universe = {
         sym: data for sym, data in universe.items()
@@ -367,8 +371,12 @@ def run():
             alerted_today.clear()
             last_date = now.date()
             # Refresh universe daily (new listings, index changes)
-            universe = build_universe(nse)
-            universe = {s: d for s, d in universe.items() if s not in fno and s not in sme}
+            universe = build_universe(
+        nse,
+        bhav,
+        fno,
+        sme
+    )
             print(f'\n  📅 New day — universe refreshed: {len(universe)} stocks\n')
 
         cur_time = now.time()

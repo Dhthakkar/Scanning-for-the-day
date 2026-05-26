@@ -472,7 +472,10 @@ def run_scan():
     nse = NSEClient()
 
     fno_list = nse.fno_symbols()
+    sme_list = nse.sme_symbols()
+
     print(f'         F&O list loaded         : {len(fno_list)} symbols')
+    print(f'         SME list loaded         : {len(sme_list)} symbols')
     time.sleep(CFG['api_delay'])
 
     # ── Step 2: Bhavcopy ─────────────────────────────
@@ -516,10 +519,15 @@ def run_scan():
         if not sym:
             continue
 
-        tag = f'  [{idx+1:02d}/{len(candidates)}]  {sym:<14}  +{gap_pct:.1f}%'
-
-        # ── F&O filter ──────────────────────────────
         if sym in fno_list:
+            print(f'{tag}  ❌ F&O stock — skip')
+            skipped['fno'] += 1
+            continue
+
+        if sym in sme_list:
+            print(f'{tag}  ❌ SME stock — skip')
+            skipped['sme'] += 1
+            continue
             print(f'{tag}  ❌ F&O stock — skip')
             skipped['fno'] += 1
             continue
