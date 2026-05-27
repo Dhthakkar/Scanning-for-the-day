@@ -72,7 +72,7 @@ NSE_HEADERS = {
     ),
     'Accept': 'application/json, text/plain, */*',
     'Accept-Language': 'en-US,en;q=0.9',
-    'Accept-Encoding': 'gzip, deflate, br',
+    'Accept-Encoding': 'gzip, deflate',
     'Connection': 'keep-alive',
     'Referer': 'https://www.nseindia.com/',
 }
@@ -101,6 +101,8 @@ def get_session_info():
 # ══════════════════════════════════════════════════════
 
 class NSEClient:
+    _SESSION_TTL = 180  # re-warm after 3 minutes
+
     def __init__(self):
         self.s = requests.Session()
         self.s.headers.update(NSE_HEADERS)
@@ -128,7 +130,12 @@ class NSEClient:
         self.s.headers.update(NSE_HEADERS)
         self._warm_up()
 
+    def _ensure_session(self):
+        if (datetime.now() - self._last_warm).total_seconds() > self._SESSION_TTL:
+            self._refresh_session()
+
     def _get(self, url, retries=4):
+        self._ensure_session()
         backoff = 1.0
         for attempt in range(retries + 1):
             try:
@@ -139,6 +146,8 @@ class NSEClient:
                     except Exception:
                         return {}
                 if r.status_code in (401, 403):
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, 8.0)
                     self._refresh_session()
                 elif r.status_code in (429, 500, 502, 503, 504):
                     time.sleep(backoff)
@@ -163,6 +172,13 @@ class NSEClient:
     def preopen_data(self):
         d = self._get('https://www.nseindia.com/api/market-data-pre-open?key=ALL')
         return d.get('data', [])
+
+    def sme_symbols(self):
+        d = self._get(
+            'https://www.nseindia.com/api/equity-stockIndices'
+            '?index=SME%20IPO'
+        )
+        return {x.get('symbol', '') for x in d.get('data', []) if x.get('symbol', '')}
 
     def quote(self, sym):
         return self._get(
@@ -519,6 +535,8 @@ def run_scan():
         if not sym:
             continue
 
+        tag = f'  [{idx+1:>3}/{len(candidates)}]  {sym:<20} +{gap_pct:.1f}%'
+
         if sym in fno_list:
             print(f'{tag}  ❌ F&O stock — skip')
             skipped['fno'] += 1
@@ -527,9 +545,6 @@ def run_scan():
         if sym in sme_list:
             print(f'{tag}  ❌ SME stock — skip')
             skipped['sme'] += 1
-            continue
-            print(f'{tag}  ❌ F&O stock — skip')
-            skipped['fno'] += 1
             continue
 
         # ── Fetch quote ─────────────────────────────
